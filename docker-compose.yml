@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:16
+    container_name: postgres_db
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    container_name: node_backend
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      - db
+    ports:
+      - "${APP_PORT}:${APP_PORT}"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+volumes:
+  pgdata:
