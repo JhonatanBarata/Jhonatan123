@@ -1,0 +1,12 @@
+/* Prisma 7 config (CommonJS) */
+let defineConfig = (x) => x;
+try {
+  const internals = require('@prisma/internals');
+  if (internals && typeof internals.defineConfig === 'function') defineConfig = internals.defineConfig;
+} catch (e) {}
+
+module.exports = defineConfig({
+  generator: { client: { provider: 'prisma-client-js' } },
+  datasources: { db: { provider: 'postgresql', url: process.env.DATABASE_URL } },
+  migrate: { schema: './prisma/schema.prisma' },
+});

@@ -1,136 +1,72 @@
-import express from "express";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import { Pool } from "pg";
-import cors from "cors";
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import { prisma } from './config/database';
+import { logger } from './utils/logger';
+import { errorHandler } from './middleware/errorHandler';
+
+// Routes
+import authRoutes from './modules/auth/auth.routes';
+import themeRoutes from './modules/auth/theme.routes';
+import productsRoutes from './modules/products/products.routes';
+import pedidosRoutes from './modules/pedidos/pedidos.routes';
+import clientsRoutes from './modules/clients/clients.routes';
+import path from 'path';
 
 const app = express();
+
+// Middleware
 app.use(express.json());
-app.use(cors());
+// Allow requests from frontend origin (set FRONTEND_URL in env)
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || '*',
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
 
-const {
-  APP_PORT = "3000",
-  JWT_SECRET = "supersecretjwt",
-  POSTGRES_HOST = "db",
-  POSTGRES_PORT = "5432",
-  POSTGRES_USER = "postgres",
-  POSTGRES_PASSWORD = "postgres",
-  POSTGRES_DB = "appdb",
-} = process.env;
+// Serve uploaded images
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
-const pool = new Pool({
-  host: POSTGRES_HOST,
-  port: Number(POSTGRES_PORT),
-  user: POSTGRES_USER,
-  password: POSTGRES_PASSWORD,
-  database: POSTGRES_DB,
+// Health check
+app.get('/', (_req, res) => {
+  res.json({ ok: true, message: 'API rodando ✅' });
 });
 
-// cria tabela automaticamente (simples e direto)
-async function initDb() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-  `);
-  console.log("✅ Banco pronto (tabela users ok)");
-}
+// Routes
+app.use('/auth', authRoutes);
+app.use('/theme', themeRoutes);
+app.use('/products', productsRoutes);
+app.use('/pedidos', pedidosRoutes);
+app.use('/clients', clientsRoutes);
 
-function signToken(userId: number, email: string) {
-  return jwt.sign({ sub: userId, email }, JWT_SECRET, { expiresIn: "1h" });
-}
+// Error handler (deve ser o último middleware)
+app.use(errorHandler);
 
-// Healthcheck simples
-app.get("/", (_req, res) => {
-  res.json({ ok: true, message: "API rodando ✅" });
-});
+// Start server
+const PORT = process.env.APP_PORT || 3000;
 
-// Registro
-app.post("/register", async (req, res) => {
+async function start() {
   try {
-    const { email, password } = req.body as { email?: string; password?: string };
+    // Testa conexão com banco
+    await prisma.$queryRaw`SELECT 1`;
+    logger.info('✅ Banco de dados conectado');
 
-    if (!email || !password) {
-      return res.status(400).json({ error: "email e password são obrigatórios" });
-    }
-
-    if (password.length < 4) {
-      return res.status(400).json({ error: "password muito curta (mínimo 4)" });
-    }
-
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    const result = await pool.query(
-      `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email`,
-      [email, passwordHash]
-    );
-
-    const user = result.rows[0];
-    const token = signToken(user.id, user.email);
-
-    return res.status(201).json({
-      message: "Usuário registrado ✅",
-      user,
-      token,
-    });
-  } catch (err: any) {
-    // email duplicado
-    if (err?.code === "23505") {
-      return res.status(409).json({ error: "Email já registrado" });
-    }
-    console.error(err);
-    return res.status(500).json({ error: "Erro interno" });
-  }
-});
-
-// Login
-app.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body as { email?: string; password?: string };
-
-    if (!email || !password) {
-      return res.status(400).json({ error: "email e password são obrigatórios" });
-    }
-
-    const result = await pool.query(
-      `SELECT id, email, password_hash FROM users WHERE email = $1`,
-      [email]
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(401).json({ error: "Credenciais inválidas" });
-    }
-
-    const user = result.rows[0];
-    const ok = await bcrypt.compare(password, user.password_hash);
-
-    if (!ok) {
-      return res.status(401).json({ error: "Credenciais inválidas" });
-    }
-
-    const token = signToken(user.id, user.email);
-
-    return res.json({
-      message: "Login OK ✅",
-      token,
+    app.listen(Number(PORT), '0.0.0.0', () => {
+      logger.info(`🚀 API rodando em http://localhost:${PORT}`);
     });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Erro interno" });
-  }
-});
-
-// Start
-initDb()
-  .then(() => {
-    app.listen(Number(APP_PORT), "0.0.0.0", () => {
-      console.log(`🚀 API rodando em http://localhost:${APP_PORT}`);
-    });
-  })
-  .catch((err) => {
-    console.error("❌ Erro ao iniciar DB", err);
+    logger.error('❌ Erro ao iniciar servidor:', err);
     process.exit(1);
-  });
+  }
+}
+
+start();
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  logger.info('Desligando...');
+  await prisma.$disconnect();
+  process.exit(0);
+});

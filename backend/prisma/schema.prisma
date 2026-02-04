@@ -1,0 +1,84 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id    Int     @id @default(autoincrement())
+  email String  @unique
+  passwordHash String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  theme UserTheme?
+
+  @@map("users")
+}
+
+model UserTheme {
+  id     Int      @id @default(autoincrement())
+  userId Int      @unique
+  theme  Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_themes")
+}
+
+model Product {
+  id          Int     @id @default(autoincrement())
+  name        String
+  description String?
+  price       Decimal @db.Decimal(10, 2)
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relacionamento com cliente (cada produto pertence a um cliente)
+  clientId Int?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  pedidos Pedido[]
+
+  @@map("products")
+}
+
+model Client {
+  id          Int     @id @default(autoincrement())
+  name        String
+  email       String? @unique
+  phone       String?
+  passwordHash String?
+  blocked     Boolean @default(false)
+  paid        Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products Product[]
+
+  @@map("clients")
+}
+
+model Pedido {
+  id           Int     @id @default(autoincrement())
+  clienteNome  String
+  produtoId    Int
+  quantidade   Int
+  status       String  @default("pendente")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  produto Product @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  @@map("pedidos")
+}
